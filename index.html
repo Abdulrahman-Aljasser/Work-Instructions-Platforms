@@ -93,6 +93,7 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 .sec.closed .sec-body{display:none}
 .steps{display:flex;flex-direction:column;gap:.65rem;padding-top:.65rem}
 .step{background:var(--card);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;}
+.step.step-highlight{outline:2.5px solid var(--navy);outline-offset:1px;box-shadow:0 0 0 5px rgba(31,52,97,.12);animation:pulseHi 1.6s ease 1}
 .step-hd{width:100%;display:flex;align-items:center;gap:.65rem;padding:.72rem .9rem;cursor:pointer;text-align:right;transition:background .15s;}
 .step-hd:hover{background:var(--paper)}
 .step-num{background:var(--navy);color:#fff;font-size:.7rem;font-weight:700;border-radius:7px;padding:.15rem .52rem;flex-shrink:0;}
@@ -110,6 +111,8 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 .row-reject{background:var(--rbg);border:1px solid var(--rbr);color:#7a2420}
 .row-suspend{background:var(--abg);border:1px solid var(--abr);color:#7a520a}
 .row-rule{background:var(--bbg);border:1px solid var(--bbr);color:var(--ink)}
+.row-highlight{outline:2.5px solid var(--navy);outline-offset:1px;box-shadow:0 0 0 5px rgba(31,52,97,.12);animation:pulseHi 1.6s ease 1}
+@keyframes pulseHi{0%{box-shadow:0 0 0 0 rgba(31,52,97,.35)}60%{box-shadow:0 0 0 8px rgba(31,52,97,0)}100%{box-shadow:0 0 0 5px rgba(31,52,97,.12)}}
 .row-req{background:var(--paper);border:1px solid var(--line)}
 .row-code{font-family:monospace;font-weight:700;flex-shrink:0;min-width:34px}
 .row-icon{flex-shrink:0;margin-top:.05rem}
@@ -182,7 +185,7 @@ mark{background:#FFE9A8;border-radius:3px;padding:0 .1em}
         <rect x="3" y="17" width="12" height="4" rx="1" fill="#7BD7A6" opacity=".8"/>
       </svg>
     </div>
-    <div><div class="htitle">منصة تعليمات العمل</div><div class="hsub">إدارة التصرفات العقارية — السجل العقاري</div></div>
+        <div><div class="htitle">منصة تعليمات العمل</div><div class="hsub">إدارة التصرفات العقارية — السجل العقاري</div></div>
     <div class="hspace"></div>
   </div>
 </header>
@@ -203,12 +206,14 @@ mark{background:#FFE9A8;border-radius:3px;padding:0 .1em}
   <div class="cols">
     <div class="list-col">
       <div class="filters" id="filtersBar">
-        <label class="flbl">الحالة
-          <select id="fStatus" onchange="renderCards()">
-            <option value="">الكل</option>
-            <option value="active">سارية</option>
-            <option value="updated">محدثة</option>
-            <option value="draft">مسودة</option>
+        <label class="flbl">الخدمة
+          <select id="fService" onchange="onServiceChange()">
+            <option value="">جميع الخدمات</option>
+          </select>
+        </label>
+        <label class="flbl">البحث داخل الخدمة
+          <select id="fTopic" onchange="onTopicChange()" disabled>
+            <option value="">اختر خدمة أولاً</option>
           </select>
         </label>
         <label class="flbl">التصنيف
@@ -256,7 +261,6 @@ const FILES = [
   'split-plot.md',
   'split-units.md',
   're-split-units.md',
-  'tasheer.md',
 ];
 
 /* raw.githubusercontent.com يتجاوز CORS تماماً */
@@ -266,7 +270,7 @@ const MD_FILES = FILES.map(f => BASE + f);
 /* ════════════════════════════════════════════
    STATE
    ════════════════════════════════════════════ */
-const ST = { services: [], query: '', fStatus: '', fClass: '', current: null };
+const ST = { services: [], query: '', fService: '', fTopic: '', fClass: '', current: null };
 
 /* ════════════════════════════════════════════
    INIT — يقرأ كل ملف MD ويحوّله
@@ -289,10 +293,123 @@ async function init() {
   const failed = results.filter(r => r.status === 'rejected');
   if (failed.length) console.warn('فشل تحميل', failed.length, 'ملف');
 
+  populateServiceDropdown();
   renderCards();
   renderSidebar();
   renderQuickTags();
   bindSearch();
+}
+
+/* ════════════════════════════════════════════
+   SERVICE & TOPIC DROPDOWNS
+   ════════════════════════════════════════════ */
+function populateServiceDropdown() {
+  const sel = document.getElementById('fService');
+  sel.innerHTML = '<option value="">جميع الخدمات</option>' +
+    ST.services.map(s => `<option value="${esc(s.id)}">${esc(s.nameShort||s.name)}</option>`).join('');
+}
+
+function onServiceChange() {
+  const id = document.getElementById('fService').value;
+  ST.fService = id;
+  ST.fTopic = '';
+  const topicSel = document.getElementById('fTopic');
+
+  if (!id) {
+    topicSel.innerHTML = '<option value="">اختر خدمة أولاً</option>';
+    topicSel.disabled = true;
+    renderCards();
+    return;
+  }
+
+  const s = ST.services.find(x => x.id === id);
+  topicSel.disabled = false;
+  const opts = ['<option value="">كل مواضيع الخدمة</option>'];
+
+  if ((s.steps||[]).length) {
+    opts.push(`<optgroup label="⚙️ الخطوات">`);
+    s.steps.forEach(st => opts.push(`<option value="step:${esc(st.num)}">${esc(st.num)} — ${esc(st.title)}</option>`));
+    opts.push(`</optgroup>`);
+  }
+  if ((s.documents||[]).length) {
+    opts.push(`<optgroup label="📎 المستندات">`);
+    s.documents.forEach((d,i) => opts.push(`<option value="doc:${i}">${esc(d.name)}</option>`));
+    opts.push(`</optgroup>`);
+  }
+  if ((s.rejections||[]).length) {
+    opts.push(`<optgroup label="🚫 أسباب الرفض">`);
+    s.rejections.forEach(r => opts.push(`<option value="reject:${esc(r.code)}">${esc(r.code)} — ${esc(r.text.slice(0,40))}</option>`));
+    opts.push(`</optgroup>`);
+  }
+  if ((s.suspensions||[]).length) {
+    opts.push(`<optgroup label="⏸️ أسباب التعليق">`);
+    s.suspensions.forEach(r => opts.push(`<option value="suspend:${esc(r.code)}">${esc(r.code)} — ${esc(r.text.slice(0,40))}</option>`));
+    opts.push(`</optgroup>`);
+  }
+  if ((s.requirements||[]).length) {
+    opts.push(`<optgroup label="🎓 متطلبات الموظف">`);
+    s.requirements.forEach((r,i) => opts.push(`<option value="req:${i}">${esc(r.text.slice(0,40))}</option>`));
+    opts.push(`</optgroup>`);
+  }
+  if ((s.rules||[]).length) {
+    opts.push(`<optgroup label="📋 القواعد العامة">`);
+    s.rules.forEach((r,i) => opts.push(`<option value="rule:${i}">${esc(r.slice(0,40))}</option>`));
+    opts.push(`</optgroup>`);
+  }
+
+  topicSel.innerHTML = opts.join('');
+  renderCards();
+  openDetail(id);
+}
+
+function onTopicChange() {
+  const val = document.getElementById('fTopic').value;
+  ST.fTopic = val;
+  if (!ST.fService || !val) return;
+
+  openDetail(ST.fService);
+  const [kind, key] = val.split(':');
+
+  const tabMap = { step:'steps', doc:'docs', reject:'reject', suspend:'reject', req:'docs', rule:'rules' };
+  const tabName = tabMap[kind];
+  if (tabName) {
+    const tabBtn = document.querySelector(`.tab[data-tab="${tabName}"]`);
+    if (tabBtn) tabBtn.click();
+  }
+
+  setTimeout(() => {
+    // clear any previous highlight
+    document.querySelectorAll('.row-highlight').forEach(el => el.classList.remove('row-highlight'));
+    document.querySelectorAll('.step-highlight').forEach(el => el.classList.remove('step-highlight'));
+
+    const s = ST.services.find(x => x.id === ST.fService);
+
+    if (kind === 'step') {
+      document.querySelectorAll('.step').forEach(el => el.classList.remove('open'));
+      const stepEls = document.querySelectorAll('.step');
+      const idx = (s.steps||[]).findIndex(st => st.num === key);
+      if (idx >= 0 && stepEls[idx]) {
+        stepEls[idx].classList.add('open');
+        stepEls[idx].classList.add('step-highlight');
+        stepEls[idx].scrollIntoView({behavior:'smooth', block:'center'});
+      }
+    } else if (kind === 'doc') {
+      const el = document.querySelector(`[data-doc-idx="${key}"]`);
+      if (el) { el.classList.add('row-highlight'); el.scrollIntoView({behavior:'smooth', block:'center'}); }
+    } else if (kind === 'req') {
+      const el = document.querySelector(`[data-req-idx="${key}"]`);
+      if (el) { el.classList.add('row-highlight'); el.scrollIntoView({behavior:'smooth', block:'center'}); }
+    } else if (kind === 'rule') {
+      const el = document.querySelector(`[data-rule-idx="${key}"]`);
+      if (el) { el.classList.add('row-highlight'); el.scrollIntoView({behavior:'smooth', block:'center'}); }
+    } else if (kind === 'reject' || kind === 'suspend') {
+      const el = document.querySelector(`[data-issue-code="${key}"]`);
+      if (el) { el.classList.add('row-highlight'); el.scrollIntoView({behavior:'smooth', block:'center'}); }
+    } else {
+      const target = document.querySelector('.pane.on');
+      if (target) target.scrollIntoView({behavior:'smooth', block:'start'});
+    }
+  }, 60);
 }
 
 /* ════════════════════════════════════════════
@@ -416,15 +533,14 @@ function hl(text, q) {
 }
 function esc(s) { return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])) }
 function filtered() {
-  const q=norm(ST.query), fs=ST.fStatus, fc=ST.fClass;
-  return ST.services.filter(s=>(!q||searchable(s).includes(q))&&(!fs||s.status===fs)&&(!fc||s.classification===fc));
+  const q=norm(ST.query), fc=ST.fClass, fsv=ST.fService;
+  return ST.services.filter(s=>(!q||searchable(s).includes(q))&&(!fsv||s.id===fsv)&&(!fc||s.classification===fc));
 }
 
 /* ════════════════════════════════════════════
    RENDER CARDS
    ════════════════════════════════════════════ */
 function renderCards() {
-  ST.fStatus = document.getElementById('fStatus').value;
   ST.fClass  = document.getElementById('fClass').value;
   closeDetail();
   const list = filtered();
@@ -466,7 +582,6 @@ function openDetail(id) {
   if (!s) return;
   ST.current = id;
   document.getElementById('cardList').classList.add('hidden');
-  document.getElementById('filtersBar').classList.add('hidden');
   const dv = document.getElementById('detailView');
   dv.classList.remove('hidden');
   dv.innerHTML = buildDetail(s);
@@ -478,7 +593,6 @@ function closeDetail() {
   document.getElementById('detailView').classList.add('hidden');
   document.getElementById('detailView').innerHTML = '';
   document.getElementById('cardList').classList.remove('hidden');
-  document.getElementById('filtersBar').classList.remove('hidden');
 }
 
 function buildDetail(s) {
@@ -491,8 +605,7 @@ function buildDetail(s) {
     العودة
   </button>
   <div class="dhead">
-    <div class="dhead-bar" style="background:${acc}"></div>
-    ${s.status!=='draft'?'<span class="dhead-stamp">نسخة معتمدة</span>':''}
+    <div class="dhead-bar" style="background:${acc}"></div>ٍ
     <span class="badge ${statusClass(s.status)}" style="display:inline-block;margin-bottom:.4rem">${statusLabel(s.status)} — الإصدار ${esc(s.version)}</span>
     <div class="dhead-title">${esc(s.name)}</div>
     <p class="dhead-desc">${esc(s.description)}</p>
@@ -530,15 +643,15 @@ function buildSteps(s) {
 }
 function buildDocs(docs=[]) {
   if (!docs.length) return '<p style="color:var(--muted);font-size:.83rem;padding:.5rem 0">لا توجد مستندات.</p>';
-  return `<div class="item-list">${docs.map(d=>`<div class="row row-doc"><span class="row-icon">📄</span><div class="row-body"><div class="row-name">${esc(d.name)}</div>${d.notes?`<div class="row-note">${esc(d.notes)}</div>`:''}</div><span class="req-badge ${d.required?'req-y':'req-n'}">${d.required?'إلزامي':'اختياري'}</span></div>`).join('')}</div>`;
+  return `<div class="item-list">${docs.map((d,i)=>`<div class="row row-doc" data-doc-idx="${i}"><span class="row-icon">📄</span><div class="row-body"><div class="row-name">${esc(d.name)}</div>${d.notes?`<div class="row-note">${esc(d.notes)}</div>`:''}</div><span class="req-badge ${d.required?'req-y':'req-n'}">${d.required?'إلزامي':'اختياري'}</span></div>`).join('')}</div>`;
 }
 function buildReqs(reqs=[]) {
   if (!reqs.length) return '<p style="color:var(--muted);font-size:.83rem;padding:.5rem 0">لا توجد متطلبات.</p>';
-  return `<div class="item-list">${reqs.map(r=>`<div class="row row-req"><span class="row-icon">${r.required?'✅':'○'}</span><div class="row-body"><div class="row-name">${esc(r.text)}</div>${r.notes?`<div class="row-note">${esc(r.notes)}</div>`:''}</div><span class="req-badge ${r.required?'req-y':'req-n'}">${r.required?'إلزامي':'اختياري'}</span></div>`).join('')}</div>`;
+  return `<div class="item-list">${reqs.map((r,i)=>`<div class="row row-req" data-req-idx="${i}"><span class="row-icon">${r.required?'✅':'○'}</span><div class="row-body"><div class="row-name">${esc(r.text)}</div>${r.notes?`<div class="row-note">${esc(r.notes)}</div>`:''}</div><span class="req-badge ${r.required?'req-y':'req-n'}">${r.required?'إلزامي':'اختياري'}</span></div>`).join('')}</div>`;
 }
 function buildIssueList(items=[],type) {
   if (!items.length) return `<p style="color:var(--muted);font-size:.83rem;padding:.5rem 0">لا توجد بنود.</p>`;
-  return `<div class="item-list">${items.map(r=>`<div class="row row-${type}"><span class="row-icon">${type==='reject'?'🚫':'⏸️'}</span><span class="row-code">${esc(r.code)}</span><span>${esc(r.text)}</span></div>`).join('')}</div>`;
+  return `<div class="item-list">${items.map(r=>`<div class="row row-${type}" data-issue-code="${esc(r.code)}"><span class="row-icon">${type==='reject'?'🚫':'⏸️'}</span><span class="row-code">${esc(r.code)}</span><span>${esc(r.text)}</span></div>`).join('')}</div>`;
 }
 function buildNotes(notes=[]) {
   if (!notes.length) return '';
@@ -562,7 +675,7 @@ function buildChecklist(s) {
   return `<div class="checklist">${p.join('')}</div>`;
 }
 function buildRules(rules=[]) {
-  return `<div class="item-list">${rules.map(r=>`<div class="row row-rule"><span class="row-icon">◆</span><span>${esc(r)}</span></div>`).join('')}</div>`;
+  return `<div class="item-list">${rules.map((r,i)=>`<div class="row row-rule" data-rule-idx="${i}"><span class="row-icon">◆</span><span>${esc(r)}</span></div>`).join('')}</div>`;
 }
 function buildMsgsTable(msgs=[]) {
   if (!msgs.length) return '';
@@ -615,7 +728,15 @@ function bindSearch() {
   inp.addEventListener('keydown',e=>{if(e.key==='Enter')doSearch();});
 }
 function doSearch(){ST.query=document.getElementById('q').value.trim();renderCards();}
-function resetAll(){ST.query='';ST.fStatus='';ST.fClass='';document.getElementById('q').value='';document.getElementById('fStatus').value='';document.getElementById('fClass').value='';renderCards();}
+function resetAll(){
+  ST.query='';ST.fService='';ST.fTopic='';ST.fClass='';
+  document.getElementById('q').value='';
+  document.getElementById('fService').value='';
+  document.getElementById('fTopic').innerHTML='<option value="">اختر خدمة أولاً</option>';
+  document.getElementById('fTopic').disabled=true;
+  document.getElementById('fClass').value='';
+  renderCards();
+}
 
 /* ════════════════════════════════════════════
    DETAIL EVENTS
